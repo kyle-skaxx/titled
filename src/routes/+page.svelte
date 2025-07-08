@@ -1,165 +1,166 @@
 <script>
-	import { onMount } from 'svelte';
-  import SummonerInfo from './SummonerInfo.svelte';
+  import { createEventDispatcher } from 'svelte';
+  import { getPUUIDFromRiotID, getMatchData, getMatchHistory } from './api/riot-api.js'; 
+  const dispatch = createEventDispatcher();
 
-	import {
-		getSummonerData,
-		getMatchHistory,
-		getMatchData,
-		getRoutingValue
-	} from './api/riot-api.js';
+  let summonerInput = '';
+    let region = '';
 
-	var LOL_version = '13.15.1';
-	let summonerName = '';
-	let region = '';
-	let summonerData = null;
-	let matchHistory = null;
-	let matches = [];
+  let puuid = '';
+  let error = '';
 
-	async function search() {
-		const summonerResponse = await getSummonerData(region, summonerName);
-		summonerData = summonerResponse;
+  async function handleSearch() {
+    try {
+      error = '';
+      if (!summonerInput.includes('#')) {
+        throw new Error("Use format: GameName#TagLine");
+      }
+      if (!region) {
+        throw new Error("Please select a region");
+      }
+      const [gameName, tagLine] = summonerInput.split('#');
+	  const cluster = getRoutingValue(region);
+      puuid = await getPUUIDFromRiotID(cluster, gameName, tagLine);
+	  
+      dispatch('searchComplete', { puuid, cluster });
+	  
+    } catch (err) {
+      error = err.message;
+    }
+  }
+  function getRoutingValue(region) {
+  	switch (region) {
+    case 'na1':
+    case 'br1':
+    case 'la1':
+    case 'la2':
+      return 'americas';
+    case 'kr':
+    case 'jp1':
+	  return 'asia';
+    case 'eun1':
+    case 'euw1':
+    case 'tr1':
+    case 'ru':
+      return 'europe';
+	case 'oc1':
+    case 'ph2':
+    case 'sg2':
+    case 'th2':
+    case 'tw2':
+    case 'vn2':
+		return 'sea'
 
-		if (summonerData && summonerData.puuid) {
-			try {
-				const matchHistoryResponse = await getMatchHistory(region, summonerData.puuid);
-				matchHistory = matchHistoryResponse;
+    default:
+      throw new Error(`Invalid region code: ${region}`);
+  }}
 
-				if (matchHistory) {
-					const routingValue = getRoutingValue(region);
-					const matchDataPromises = matchHistory.map((matchId) =>
-						getMatchData(routingValue, matchId)
-					);
-					const matchesData = await Promise.all(matchDataPromises);
-          matches = matchesData.map(match => {
-  const summonerParticipant = match.info.participants.find(participant => participant.summonerName === summonerName);
-  return {
-    matchId: match.metadata.matchId,
-    gameMode: match.info.gameMode,
-    participants: match.info.participants.map(participant => ({
-      summonerName: participant.summonerName,
-      championName: participant.championName
-    })),
-    isWin: summonerParticipant ? summonerParticipant.win : false,
-    summonerChampion: summonerParticipant ? summonerParticipant.championName : null
-  };
-});
+export async function showMatchHistory(region, puuid) {
+	const cluster = getRoutingValue(region)
+	try {
+		const matchIds = await getMatchHistory(cluster, puuid);
 
-				}
-			} catch (error) {
-				console.error('Error occurred while fetching data:', error);
-			}
-		}
+
+		const matchDataList = await Promise.all(
+			matchIds.map(matchId => getMatchData(cluster, matchId))
+		);
+		console.log(matchDataList)
+
+		return matchDataList;
+
+	} catch (err) {
+		console.error("Error fetching match history:", err);
+		return [];
 	}
-
-	function getDisplayGameMode(gameMode) {
-		const gameModeMap = {
-			CHERRY: 'ARENAS',
-			ARAM: 'ARAM',
-			CLASSIC: 'CLASSIC',
-			RANKED: 'RANKED'
-		};
-
-		return gameModeMap[gameMode] || gameMode;
+}
+	function showDashboard() {
 	}
 </script>
 
-<svelte:head>
-	<title>Tilted</title>
-</svelte:head>
+<form on:submit|preventDefault={handleSearch}>
+  <label class="neumorphic-label" for="summonerName">Summoner Name:</label>
+  <input
+    id="summonerName"
+    bind:value={summonerInput}
+    placeholder="Faker#KR1"
+    class="neumorphic-input"
+    required
+  />
 
-<section>
-	<h1>Welcome to Tilted</h1>
+  <label class="neumorphic-label" for="region">Region:</label>
+  <select id="region" bind:value={region} class="neumorphic-select" required>
+    <option disabled value="">-- Choose Region --</option>
+    <option value="br1">Brazil</option>
+    <option value="eun1">Europe Nordic & East</option>
+    <option value="euw1">Europe West</option>
+    <option value="jp1">Japan</option>
+    <option value="kr">Korea</option>
+    <option value="la1">Latin America North</option>
+    <option value="la2">Latin America South</option>
+    <option value="na1">North America</option>
+    <option value="oc1">Oceania</option>
+    <option value="ph2">Philippines</option>
+    <option value="ru">Russia</option>
+    <option value="sg2">Singapore</option>
+    <option value="tr1">Turkey</option>
+  </select>
 
-	<form on:submit|preventDefault={search}>
-		<label class="neumorphic-label" for="summonerName">Summoner Name:</label>
-		<input id="summonerName" bind:value={summonerName} class="neumorphic-input" required />
+  <button type="submit" class="neumorphic-btn">Search Summoner</button>
+</form>
+{#if puuid}
+	<div >
+		<button class="neumorphic-btn" on:click={() => showMatchHistory(region, puuid)}>
+  Show Match History
+</button>
 
-		<label class="neumorphic-label" for="region">Region:</label>
-		<select id="region" bind:value={region} required class="neumorphic-select">
-			<option disabled value="">-- choose region --</option>
-			<option value="br1">Brazil</option>
-			<option value="eun1">Europe Nordic & East</option>
-			<option value="euw1">Europe West</option>
-			<option value="jp1">Japan</option>
-			<option value="kr">Korea</option>
-			<option value="la1">Latin America North</option>
-			<option value="la2">Latin America South</option>
-			<option value="na1">North America</option>
-			<option value="oc1">Oceania</option>
-			<option value="ph2">Philippines</option>
-			<option value="ru">Russia</option>
-			<option value="sg2">Singapore</option>
-			<option value="tr1">Turkey</option>
-		</select>
-
-		<button type="submit" class="neumorphic-btn">Search</button>
-	</form>
-</section>
-{#if summonerData}
-	<section>
-    <SummonerInfo summonerData={summonerData} LOL_version={LOL_version} />
-
-
-		{#if matches && matches.length}
-			<div class="container-01">
-				{#each matches as match (match.matchId)}
-					<div class="neumorphic-card {match.isWin ? 'win' : 'loss'}">
-						<div class="imgBox">
-							<h3>{getDisplayGameMode(match.gameMode)}</h3>
-
-							<img
-								src="http://ddragon.leagueoflegends.com/cdn/{LOL_version}/img/champion/{match.summonerChampion}.png"
-								alt="Summoner Champion played that"
-							/>
-						</div>
-						<div class="contentBox">
-							<ul>
-								{#each match.participants.slice(0, match.participants.length / 2) as participant}
-									<li>
-										<img
-											src="http://ddragon.leagueoflegends.com/cdn/{LOL_version}/img/champion/{participant.championName}.png"
-											alt={participant.championName}
-											width="20px"
-											height="20px"
-										/>
-										{participant.summonerName}
-									</li>
-								{/each}
-							</ul>
-
-							<hr />
-
-							<ul>
-								{#each match.participants.slice(match.participants.length / 2) as participant}
-									<li>
-										<img
-											src="http://ddragon.leagueoflegends.com/cdn/{LOL_version}/img/champion/{participant.championName}.png"
-											alt={participant.championName}
-											width="20px"
-											height="20px"
-										/>
-										{participant.summonerName}
-									</li>
-								{/each}
-							</ul>
-						</div>
-					</div>
-				{/each}
-			</div>
-		{:else}
-			<p>No match history found.</p>
-		{/if}
-	</section>
+		<button class="neumorphic-btn" on:click={showDashboard}>
+			Show Dashboard
+		</button>
+	</div>
 {/if}
-
+{#if error}
+  <p style="color: red;">{error}</p>
+{/if}
 <style>
+	.button-group {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+		margin-top: 2rem;
+	}
+
+	.neumorphic-btn {
+		font-size: 15px;
+		border: none;
+		padding: 10px 30px;
+		border-radius: 40px;
+		color: #6d7587;
+		background-color: var(--back-color, #ebf5fc);
+		box-shadow: 7px 7px 15px rgba(55, 84, 170, 0.15),
+					-7px -7px 20px rgba(255, 255, 255, 1),
+					inset 0px 0px 4px rgba(255, 255, 255, 0.2),
+					inset 7px 7px 15px rgba(55, 84, 170, 0),
+					inset -7px -7px 20px rgba(255, 255, 255, 0),
+					0px 0px 4px rgba(255, 255, 255, 0) !important;
+		cursor: pointer;
+		transition: box-shadow 0.25s ease !important;
+	}
+	.neumorphic-btn:active {
+		box-shadow: 7px 7px 15px rgba(55, 84, 170, 0.15),
+					-7px -7px 20px rgba(255, 255, 255, 1),
+					inset 0px 0px 4px rgba(255, 255, 255, 0),
+					inset 7px 7px 15px rgba(55, 84, 170, 0.15),
+					inset -7px -7px 20px rgba(255, 255, 255, 1),
+					0px 0px 4px rgba(255, 255, 255, 0.2) !important;
+	}
+</style>
+<!-- <style>
 .container-01 .neumorphic-card.win {
-  background-color: #d7ffd6; /* green for win */
+  background-color: #d7ffd6; 
 }
 
 .container-01 .neumorphic-card.loss {
-  background-color: #ffd6d6; /* red for loss */
+  background-color: #ffd6d6; 
 }
 
 	.container-01 .neumorphic-card {
@@ -281,4 +282,4 @@
 			inset 0px 0px 4px rgba(255, 255, 255, 0), inset 7px 7px 15px rgba(55, 84, 170, 0.15),
 			inset -7px -7px 20px rgba(255, 255, 255, 1), 0px 0px 4px rgba(255, 255, 255, 0.2) !important;
 	}
-</style>
+</style> -->
